@@ -6,6 +6,8 @@ library(corrplot) # for making correlation plot
 library(caret) # for training
 library(gbm) # for boosted regression
 library(glmnet) # for LASSO
+library(png)
+library(corrplot)
 
 # Load and Describe Data -------------------------------------------------------
 # Import data
@@ -54,12 +56,12 @@ trCtrl <- trainControl(method="repeatedcv",
 # LVQ --------------------------------------------------------------------------
 # For LVQ, target variable must be a factor
 
-# Make a new data frame AllWalkData.SelfDonated.LVQ to convert SelfDonated to a
+# Make a new data frame AllWalkData.Fundraised.LVQ to convert Fundraised to a
 # factor since LVQ needs the target variable as a factor
 
 
 # train the model
-model.SelfDonated.lvq <- train(SelfDonated~.,
+model.Fundraised.lvq <- train(Fundraised~.,
                                data=df.train,
                                method="lvq",
                                preProcess=c("center","scale"),
@@ -67,7 +69,158 @@ model.SelfDonated.lvq <- train(SelfDonated~.,
                                tuneLength=5)
 
 # estimate variable importance
-importance.SelfDonated.lvq <- varImp(model.SelfDonated.lvq, scale=FALSE)
+importance.Fundraised.lvq <- varImp(model.SelfDonated.lvq, scale=FALSE)
 
 # summarize importance
-importance.SelfDonated.lvq
+importance.Fundraised.lvq
+
+#LASSO
+
+#define response variable
+y<-train$Fundraised
+
+#define matrix of predictor variables
+x<-data.matrix(subset(df.train, select = -c(Fundraised)))
+
+lasso<-glmnet(x=x,y=y,family = binomial)
+cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
+best_lamda <- cv_lasso$lambda.min
+best_lamda
+best_model <- glmnet(x, y, alpha = 1, 
+                     family = binomial, lambda = best_lamda)
+coef(best_model)
+
+# Boosted Tree -----------------------------------------------------------------
+model.Fundraised.gbm = gbm(Fundraised ~ .,
+                            data = df.train,
+                            distribution = "gaussian",
+                            n.trees = 5000,
+                            shrinkage = 0.01,
+                            interaction.depth = 4,
+                            verbose = TRUE)
+
+# Variable Importance
+Fundraised.gbm.summary <- summary(model.Fundraised.gbm)
+data.frame(var=Fundraised.gbm.summary$var, rel.inf=Fundraised.gbm.summary$rel.inf)
+plot(model.Fundraised.gbm, i = "MeanLeadTime")
+# STEP 3 - SELECT MOST IMPORTANT VARS, RUN DATA REDUCTION ----------------------
+
+# Select Most Important Variables ----------------------------------------------
+MostImportantVars.Fundraised <- df.train %>%
+  select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
+           UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
+           RepeatParticipant, ModifiedGoal, CompletedReg))
+
+MostImportantVars.Fundraised.Integer <- data.frame(lapply(MostImportantVars.Fundraised, as.integer))
+
+# Correlation Matrix -----------------------------------------------------------
+# Make a correlation matrix for the most impportant vars
+correlationMatrix.Fundraised <- cor(MostImportantVars.Fundraised.Integer)
+print(correlationMatrix.Fundraised)
+
+# Find the values in the correlation matrix that are highly correlated (value
+# greater than 0.5)
+highlyCorrelated.Fundraised <-
+  findCorrelation(correlationMatrix.Fundraised, cutoff=0.5, names=TRUE)
+print(highlyCorrelated.Fundraised)
+
+# Important Plots of Analysis --------------------------------------------------
+
+# Plot Importance of LVQ
+png(filename = "FundraisedGraphs/LVQImportance.png")
+plot(importance.Fundraised.lvq)
+dev.off()
+
+# Correlation plot
+png(filename = "FundraisedGraphs/Correlation.png")
+corrplot(correlationMatrix.Fundraised,
+         method='ellipse',
+         type='lower',
+         tl.col='black',
+         tl.srt = 45,
+         tl.cex=0.6)
+dev.off()
+
+# Variable Importance Plot of GBM
+png(filename = "FundraisedGraphs/GBMVariableImportance.png")
+#summary(model.Fundraised.gbm)
+Fundraised.gbm.summary
+dev.off()
+
+# Partial Dependence Plots from GBM
+png(filename = "FundraisedGraphs/MeanLeadTimePartialDependence.png")
+plot(model.Fundraised.gbm, i = "MeanLeadTime")
+dev.off()
+
+png(filename = "FundraisedGraphs/DistanceTraveledPartialDependence.png")
+plot(model.Fundraised.gbm, i = "DistanceTraveled")
+dev.off()
+
+png(filename = "FundraisedGraphs/SentEmailsPartialDependence.png")
+plot(model.Fundraised.gbm, i = "SentEmails")
+dev.off()
+
+png(filename = "FundraisedGraphs/MeanGoalPartialDependence.png")
+plot(model.Fundraised.gbm, i = "MeanGoal")
+dev.off()
+
+png(filename = "FundraisedGraphs/MeanTeamGoalPartialDependence.png")
+plot(model.Fundraised.gbm, i = "MeanTeamGoal")
+dev.off()
+
+png(filename = "FundraisedGraphs/UpdatedPersonalPagePartialDependence.png")
+plot(model.Fundraised.gbm, i = "UpdatedPersonalPage")
+dev.off()
+
+png(filename = "FundraisedGraphs/SelfDonatedPartialDependence.png")
+plot(model.Fundraised.gbm, i = "SelfDonated")
+dev.off()
+
+png(filename = "FundraisedGraphs/ModifiedGoalPartialDependence.png")
+plot(model.Fundraised.gbm, i = "ModifiedGoal")
+dev.off()
+
+png(filename = "FundraisedGraphs/ProvidedParticipationReasoPartialDependence.png")
+plot(model.Fundraised.gbm, i = "ProvidedParticipationReason")
+dev.off()
+
+png(filename = "FundraisedGraphs/RepeatParticipantPartialDependence.png")
+plot(model.Fundraised.gbm, i = "RepeatParticipant")
+dev.off()
+
+png(filename = "FundraisedGraphs/CompletedRegPartialDependence.png")
+plot(model.Fundraised.gbm, i = "CompletedReg")
+dev.off()
+
+# GBM Performance Plot
+numTrees = seq(from=100 ,to=5000, by=100)
+
+df.test$Fundraised <- as.numeric(df.test$Fundraised)
+predmatrix<-predict(model.Fundraised.gbm, df.test, n.trees = numTrees)
+dim(predmatrix)
+
+test.error<-with(df.test,apply( (predmatrix-Fundraised)^2,2,mean))
+head(test.error)
+
+png(filename = "FundraisedGraphs/GBMPerformance.png")
+plot(numTrees,
+     test.error, 
+     pch=19,
+     col="blue",
+     xlab="Number of Trees",
+     ylab="Test Error", 
+     main = "Perfomance of Boosting on Test Set")
+
+abline(h = min(test.error),col="red")
+legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
+dev.off()
+
+# Plot of Lambda vs Coefficients for Lasso
+png(filename = "FundraisedGraphs/LassoNoCV.png")
+plot(model.Fundraised.glmnet, xvar="lambda")
+dev.off()
+
+# Plot of CV Lasso Model
+png(filename = "FundraisedGraphs/LassoWithCV.png")
+plot(model.Fundraised.CVglmnet)
+dev.off()
