@@ -54,12 +54,6 @@ trCtrl <- trainControl(method="repeatedcv",
                        verboseIter=TRUE)
 
 # LVQ --------------------------------------------------------------------------
-# For LVQ, target variable must be a factor
-
-# Make a new data frame AllWalkData.Fundraised.LVQ to convert Fundraised to a
-# factor since LVQ needs the target variable as a factor
-
-
 # train the model
 model.Fundraised.lvq <- train(Fundraised~.,
                                data=df.train,
@@ -69,22 +63,21 @@ model.Fundraised.lvq <- train(Fundraised~.,
                                tuneLength=5)
 
 # estimate variable importance
-importance.Fundraised.lvq <- varImp(model.SelfDonated.lvq, scale=FALSE)
+importance.Fundraised.lvq <- varImp(model.Fundraised.lvq, scale=FALSE)
 
 # summarize importance
 importance.Fundraised.lvq
 
-#LASSO
+#LASSO -------------------------------------------------------------------------
 
 #define response variable
-y<-train$Fundraised
+y<-df.train$Fundraised
 
 #define matrix of predictor variables
 x<-data.matrix(subset(df.train, select = -c(Fundraised)))
 
-lasso<-glmnet(x=x,y=y,family = binomial)
-cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
-best_lamda <- cv_lasso$lambda.min
+model.Fundraised.cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
+best_lamda <- model.Fundraised.cv_lasso$lambda.min
 best_lamda
 best_model <- glmnet(x, y, alpha = 1, 
                      family = binomial, lambda = best_lamda)
@@ -215,12 +208,7 @@ abline(h = min(test.error),col="red")
 legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
 dev.off()
 
-# Plot of Lambda vs Coefficients for Lasso
-png(filename = "FundraisedGraphs/LassoNoCV.png")
-plot(model.Fundraised.glmnet, xvar="lambda")
-dev.off()
-
 # Plot of CV Lasso Model
 png(filename = "FundraisedGraphs/LassoWithCV.png")
-plot(model.Fundraised.CVglmnet)
+plot(model.Fundraised.cv_lasso)
 dev.off()
