@@ -9,6 +9,7 @@ library(glmnet) # for LASSO
 library(png)
 library(corrplot)
 library(ROCR)
+library(earth)
 
 # Load and Describe Data -------------------------------------------------------
 # Import data
@@ -24,7 +25,7 @@ str(AllWalkData)
 dim(AllWalkData)
 AllWalkData %>% skim()
 Hmisc::describe(AllWalkData)
-
+#write.csv(AllWalkData, "./AllWalkData.csv", row.names=FALSE)
 # STEP 1 - DATA PREP, SPLIT 80/20 ----------------------------------------------
 
 # Select variables to use in exploration models
@@ -34,7 +35,7 @@ AllWalkData.ModelVars <- AllWalkData %>%
            CompletedReg, ProvidedParticipationReason, MeanTeamGoal,
            RepeatParticipant))
 
- # make index to split dataset
+# make index to split dataset
 index.ModelVars <- createDataPartition(AllWalkData.ModelVars$SelfDonated,
                                        p=0.8, list=FALSE)
 
@@ -54,8 +55,9 @@ trCtrl <- trainControl(method="repeatedcv",
                        repeats=3,
                        verboseIter=TRUE)
 
-# LVQ --------------------------------------------------------------------------
+# LVQ Classification--------------------------------------------------------------------------
 # train the model
+par(mfrow=c(1,1))
 model.Fundraised.lvq <- train(Fundraised~.,
                                data=df.train,
                                method="lvq",
@@ -69,22 +71,7 @@ importance.Fundraised.lvq <- varImp(model.Fundraised.lvq, scale=FALSE)
 # summarize importance
 importance.Fundraised.lvq
 
-#LASSO -------------------------------------------------------------------------
-
-#define response variable
-y<-df.train$Fundraised
-
-#define matrix of predictor variables
-x<-data.matrix(subset(df.train, select = -c(Fundraised)))
-
-model.Fundraised.cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
-best_lamda <- model.Fundraised.cv_lasso$lambda.min
-best_lamda
-best_model <- glmnet(x, y, alpha = 1, 
-                     family = binomial, lambda = best_lamda)
-coef(best_model)
-
-# Boosted Tree -----------------------------------------------------------------
+# Boosted Tree Classification-----------------------------------------------------------------
 model.Fundraised.gbm = gbm(Fundraised ~ .,
                             data = df.train,
                             distribution = "gaussian",
@@ -111,6 +98,7 @@ MostImportantVars.Fundraised.Integer <- data.frame(lapply(MostImportantVars.Fund
 # Make a correlation matrix for the most important vars
 correlationMatrix.Fundraised <- cor(MostImportantVars.Fundraised.Integer)
 print(correlationMatrix.Fundraised)
+corrplot(correlationMatrix.Fundraised)
 
 # Find the values in the correlation matrix that are highly correlated (value
 # greater than 0.5)
@@ -118,8 +106,127 @@ highlyCorrelated.Fundraised <-
   findCorrelation(correlationMatrix.Fundraised, cutoff=0.5, names=TRUE)
 print(highlyCorrelated.Fundraised)
 
+#Compare base regression models-----------------------------------------------------------------
+#GLM
+set.seed(7)
+fit.glm <- train(Fundraised~., data=df.train, method='glm', metric="Accuracy", 
+                 trControl=trCtrl)
 
-#Logit Regression
+#LDA
+set.seed(7)
+fit.lda <- train(Fundraised~., data=df.train, method='lda', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#GLMNET
+set.seed(7)
+fit.glmnet <- train(Fundraised~., data=df.train, method='glmnet', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#KNN
+set.seed(7)
+fit.knn <- train(Fundraised~., data=df.train, method='knn', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#Naive Bayes
+set.seed(7)
+fit.nb <- train(Fundraised~., data=df.train, method='nb', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#SVM
+set.seed(7)
+fit.svm <- train(Fundraised~., data=df.train, method='svmRadial', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#LVQ
+set.seed(7)
+fit.lvq <- train(Fundraised~., data=df.train, method='lvq', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#Compare algorithms
+results <- resamples(list(LG=fit.glm, LDA=fit.lda, GLMNET=fit.glmnet, KNN=fit.knn,
+                          CART=fit.cart, NB=fit.nb, SVM=fit.svm, LVQ=fit.lvq))
+summary(results)
+dotplot(results)
+
+#Base algorithms with transformed datasets -------------------------------------
+
+#GLM
+set.seed(7)
+fit.glm <- train(Fundraised~., data=df.train.transformed, method='glm', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#LDA
+set.seed(7)
+fit.lda <- train(Fundraised~., data=df.train.transformed, method='lda', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#GLMNET
+set.seed(7)
+fit.glmnet <- train(Fundraised~., data=df.train.transformed, method='glmnet', metric="Accuracy", 
+                    trControl=trCtrl)
+
+#KNN
+set.seed(7)
+fit.knn <- train(Fundraised~., data=df.train.transformed, method='knn', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#Naive Bayes
+set.seed(7)
+fit.nb <- train(Fundraised~., data=df.train.transformed, method='nb', metric="Accuracy", 
+                trControl=trCtrl)
+
+#SVM
+set.seed(7)
+fit.svm <- train(Fundraised~., data=df.train.transformed, method='svmRadial', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#LVQ
+set.seed(7)
+fit.lvq <- train(Fundraised~., data=df.train, method='lvq', metric="Accuracy", 
+                 trControl=trCtrl)
+
+#Compare algorithms
+results <- resamples(list(LG=fit.glm, LDA=fit.lda, GLMNET=fit.glmnet, KNN=fit.knn,
+                          NB=fit.nb, SVM=fit.svm, LVQ=fit.lvq))
+summary(results)
+dotplot(results)
+
+#Ensemble Methods
+# Bagged CART
+set.seed(7)
+fit.treebag <- train(Fundraised~., data=df.train.transformed, method="treebag", metric="Accuracy",
+                     trControl=trCtrl, na.action=na.omit)
+
+# Stochastic Gradient Boosting
+set.seed(7)
+fit.gbm <- train(Fundraised~., data=df.train.transformed, method="gbm", metric="Accuracy",
+                     trControl=trCtrl, na.action=na.omit)
+
+# Random Forest
+set.seed(7)
+fit.rf <- train(Fundraised~., data=df.train.transformed, method="rf", metric="Accuracy",
+                     trControl=trCtrl, na.action=na.omit)
+
+# Compare results 
+ensembleResults <- resamples(list(BAG=fit.treebag, RF=fit.rf, GBM=fit.gbm))
+summary(ensembleResults)
+dotplot(ensembleResults)
+#LASSO -------------------------------------------------------------------------
+
+#define response variable
+y<-df.train$Fundraised
+
+#define matrix of predictor variables
+x<-data.matrix(subset(df.train, select = -c(Fundraised)))
+
+model.Fundraised.cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
+best_lamda <- model.Fundraised.cv_lasso$lambda.min
+best_lamda
+best_model <- glmnet(x, y, alpha = 1, 
+                     family = binomial, lambda = best_lamda)
+coef(best_model)
+
+#Logit Regression---------------------------------------------------------------
 MostImportantVars.Model.Fundraised <- df.train %>%
   select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
            UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
@@ -148,31 +255,59 @@ predictions.logit <- data.frame(Fundraised = df.test$Fundraised,
                               Pred.Fundraised = fitted.results)
 
 predictions.logit$Fundraised<-ifelse(predictions.logit$Fundraised=="Yes",1,0)
-predictions.logit$Pred.Fundraised <- ifelse(predictions.logit$Pred.Fundraised > 0.4,1,0)
+predictions.logit$Pred.Fundraised <- ifelse(predictions.logit$Pred.Fundraised > 0.3,1,0)
 
 #Convert to factors for Confusion Matrix
 predictions.logit$Fundraised <- as.factor(predictions.logit$Fundraised)
 predictions.logit$Pred.Fundraised <- as.factor(predictions.logit$Pred.Fundraised)
+
 #Creating confusion matrix
 logit.confusion <- confusionMatrix(data=predictions.logit$Pred.Fundraised, reference = predictions.logit$Fundraised)
 logit.confusion
 
 #Display results 
-example
-write.csv(predictions.logit, "./sumbission_logit.csv", row.names=FALSE)
+write.csv(predictions.logit, "./submission_logit.csv", row.names=FALSE)
 
-#misClasificError <- mean(predictions.logit$Pred.Fundraised != predictions.logit$Fundraised)
-#print(paste('Accuracy',1-misClasificError))
-# 0.906 accuracy??
+#MARS---------------------------------------------------------------------------
+marsFormula <- Fundraised ~MeanLeadTime+DistanceTraveled+SentEmails+
+  MeanGoal+MeanTeamGoal+UpdatedPersonalPage+SelfDonated+
+  ProvidedParticipationReason+RepeatParticipant+ 
+  ModifiedGoal+CompletedReg
+
+# set the preferred degree and number of values to prune
+tGrid <- expand.grid(degree=3, nprune=18)
+
+model.mars <- train(marsFormula, data=df.train, method="earth", tuneGrid=tGrid)
+summary(mars)
+mars
+
+#Predictions MARS Regression---------------------------------------------------
+fit.mars<- predict(model.mars,newdata=subset(df.test,select=c(MeanLeadTime, 
+                                            DistanceTraveled, SentEmails,MeanGoal, 
+                                            MeanTeamGoal,UpdatedPersonalPage, 
+                                            SelfDonated, ProvidedParticipationReason,
+                                            RepeatParticipant, ModifiedGoal,CompletedReg)))
 
 
-p <- predict(model.logit, newdata=subset(test,select=c(2,17,18,19,20,21)), type="response")
-pr <- prediction(p, test$Fundraised)
-prf <- performance(pr, measure = "tpr", x.measure = "fpr")
-plot(prf)
-auc <- performance(pr, measure = "auc")
-auc <- auc@y.values[[1]]
-auc
+# Mars Predictions on hold out
+predictions.mars <- data.frame(Fundraised = df.test$Fundraised,
+                                Pred.Fundraised = fitted.results)
+str(predictions.mars)
+
+
+predictions.mars$Fundraised<-ifelse(predictions.mars$Fundraised=="Yes",1,0)
+predictions.mars$Pred.Fundraised <- ifelse(predictions.mars$Pred.Fundraised > 0.4,1,0)
+
+#Convert to factors for Confusion Matrix
+predictions.mars$Fundraised <- as.factor(predictions.mars$Fundraised)
+predictions.mars$Pred.Fundraised <- as.factor(predictions.mars$Pred.Fundraised)
+
+#Creating confusion matrix
+mars.confusion <- confusionMatrix(data=predictions.mars$Pred.Fundraised, reference = predictions.mars$Fundraised)
+mars.confusion
+
+#Display results 
+write.csv(predictions.logit, "./submission_mars.csv", row.names=FALSE)
 # Important Plots of Analysis --------------------------------------------------
 
 # Plot Importance of LVQ
@@ -191,9 +326,14 @@ corrplot(correlationMatrix.Fundraised,
 dev.off()
 
 # Variable Importance Plot of GBM
+# Plot Importance of LVQ
+png(filename = "FundraisedGraphs/LVQImportance.png")
+plot(importance.Fundraised.lvq)
+dev.off()
+
 png(filename = "FundraisedGraphs/GBMVariableImportance.png")
-#summary(model.Fundraised.gbm)
-Fundraised.gbm.summary
+#summary(gbm.fit)
+print(gbm.summary)
 dev.off()
 
 # Partial Dependence Plots from GBM
