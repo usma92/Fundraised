@@ -8,6 +8,7 @@ library(gbm) # for boosted regression
 library(glmnet) # for LASSO
 library(png)
 library(corrplot)
+library(ROCR)
 
 # Load and Describe Data -------------------------------------------------------
 # Import data
@@ -117,6 +118,44 @@ highlyCorrelated.Fundraised <-
   findCorrelation(correlationMatrix.Fundraised, cutoff=0.5, names=TRUE)
 print(highlyCorrelated.Fundraised)
 
+
+#Logit Regression
+MostImportantVars.Model.Fundraised <- df.train %>%
+  select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
+           UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
+           RepeatParticipant, ModifiedGoal, CompletedReg,Fundraised))
+
+model.Fundraised.logit <- glm(Fundraised ~MeanLeadTime+DistanceTraveled+SentEmails+
+                               MeanGoal+MeanTeamGoal+UpdatedPersonalPage+SelfDonated+
+                               ProvidedParticipationReason+RepeatParticipant+ 
+                               ModifiedGoal+CompletedReg,
+                               family=binomial(link='logit'),data=MostImportantVars.Model.Fundraised)
+summary(model.Fundraised.logit)
+
+anova(model.Fundraised.logit, test="Chisq")
+
+#Predictions Logit Regression---------------------------------------------------
+fitted.results <- predict(model.Fundraised.logit,newdata=subset(df.test,
+                          select=c(MeanLeadTime, DistanceTraveled, SentEmails, 
+                          MeanGoal, MeanTeamGoal,UpdatedPersonalPage, SelfDonated, 
+                          ProvidedParticipationReason,RepeatParticipant, ModifiedGoal, 
+                          CompletedReg)),type='response')
+
+fitted.results <- ifelse(fitted.results > 0.4,1,0)
+
+df.test.results <- df.test[,c('Fundraised')]
+df.test.results$predicted_value <- fitted.results
+misClasificError <- mean(fitted.results != df.test$Fundraised)
+print(paste('Accuracy',1-misClasificError))
+# 0.999 accuracy??
+
+p <- predict(model.logit, newdata=subset(test,select=c(2,17,18,19,20,21)), type="response")
+pr <- prediction(p, test$Fundraised)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
 # Important Plots of Analysis --------------------------------------------------
 
 # Plot Importance of LVQ
