@@ -107,7 +107,7 @@ MostImportantVars.Fundraised <- df.train %>%
 MostImportantVars.Fundraised.Integer <- data.frame(lapply(MostImportantVars.Fundraised, as.integer))
 
 # Correlation Matrix -----------------------------------------------------------
-# Make a correlation matrix for the most impportant vars
+# Make a correlation matrix for the most important vars
 correlationMatrix.Fundraised <- cor(MostImportantVars.Fundraised.Integer)
 print(correlationMatrix.Fundraised)
 
