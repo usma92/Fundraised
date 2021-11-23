@@ -143,7 +143,7 @@ fitted.results <- predict(model.Fundraised.logit,newdata=subset(df.test,
                           CompletedReg)),type='response')
 
 
-# GLM Predictions on hold out
+# Logit Predictions on hold out
 predictions.logit <- data.frame(Fundraised = df.test$Fundraised,
                               Pred.Fundraised = fitted.results)
 
