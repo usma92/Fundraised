@@ -130,6 +130,7 @@ model.Fundraised.logit <- glm(Fundraised ~MeanLeadTime+DistanceTraveled+SentEmai
                                ProvidedParticipationReason+RepeatParticipant+ 
                                ModifiedGoal+CompletedReg,
                                family=binomial(link='logit'),data=MostImportantVars.Model.Fundraised)
+
 summary(model.Fundraised.logit)
 
 anova(model.Fundraised.logit, test="Chisq")
@@ -141,13 +142,29 @@ fitted.results <- predict(model.Fundraised.logit,newdata=subset(df.test,
                           ProvidedParticipationReason,RepeatParticipant, ModifiedGoal, 
                           CompletedReg)),type='response')
 
-fitted.results <- ifelse(fitted.results > 0.4,1,0)
 
-df.test.results <- df.test[,c('Fundraised')]
-df.test.results$predicted_value <- fitted.results
-misClasificError <- mean(fitted.results != df.test$Fundraised)
-print(paste('Accuracy',1-misClasificError))
-# 0.999 accuracy??
+# GLM Predictions on hold out
+predictions.logit <- data.frame(Fundraised = df.test$Fundraised,
+                              Pred.Fundraised = fitted.results)
+
+predictions.logit$Fundraised<-ifelse(predictions.logit$Fundraised=="Yes",1,0)
+predictions.logit$Pred.Fundraised <- ifelse(predictions.logit$Pred.Fundraised > 0.4,1,0)
+
+#Convert to factors for Confusion Matrix
+predictions.logit$Fundraised <- as.factor(predictions.logit$Fundraised)
+predictions.logit$Pred.Fundraised <- as.factor(predictions.logit$Pred.Fundraised)
+#Creating confusion matrix
+logit.confusion <- confusionMatrix(data=predictions.logit$Pred.Fundraised, reference = predictions.logit$Fundraised)
+logit.confusion
+
+#Display results 
+example
+write.csv(predictions.logit, "./sumbission_logit.csv", row.names=FALSE)
+
+#misClasificError <- mean(predictions.logit$Pred.Fundraised != predictions.logit$Fundraised)
+#print(paste('Accuracy',1-misClasificError))
+# 0.906 accuracy??
+
 
 p <- predict(model.logit, newdata=subset(test,select=c(2,17,18,19,20,21)), type="response")
 pr <- prediction(p, test$Fundraised)
