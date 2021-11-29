@@ -10,6 +10,13 @@ library(png)
 library(corrplot)
 library(ROCR)
 library(earth)
+library(rpart)
+library(party)
+library(partykit)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(gmodels)
 
 # Load and Describe Data -------------------------------------------------------
 # Import data
@@ -65,29 +72,39 @@ model.Fundraised.lvq <- train(Fundraised~.,
                                trControl=trCtrl,
                                tuneLength=5)
 
-# estimate variable importance
+ # estimate variable importance
 importance.Fundraised.lvq <- varImp(model.Fundraised.lvq, scale=FALSE)
 
 # summarize importance
 importance.Fundraised.lvq
 
 # Boosted Tree Classification-----------------------------------------------------------------
+#Use this for importance and Modeling choice
 model.Fundraised.gbm = gbm(Fundraised ~ .,
-                            data = df.train,
+                            data = df.train.transformed,
                             distribution = "gaussian",
                             n.trees = 5000,
                             shrinkage = 0.01,
                             interaction.depth = 4,
-                            verbose = TRUE)
+                            verbose = FALSE)
 
 # Variable Importance
 Fundraised.gbm.summary <- summary(model.Fundraised.gbm)
 data.frame(var=Fundraised.gbm.summary$var, rel.inf=Fundraised.gbm.summary$rel.inf)
-plot(model.Fundraised.gbm, i = "MeanLeadTime")
+
+
+
+
+
 # STEP 3 - SELECT MOST IMPORTANT VARS, RUN DATA REDUCTION ----------------------
 
 # Select Most Important Variables ----------------------------------------------
 MostImportantVars.Fundraised <- df.train %>%
+  select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
+           UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
+           RepeatParticipant, ModifiedGoal, CompletedReg, Fundraised))
+
+MostImportantVars.Fundraised.test <- df.test %>%
   select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
            UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
            RepeatParticipant, ModifiedGoal, CompletedReg))
@@ -144,7 +161,7 @@ fit.lvq <- train(Fundraised~., data=df.train, method='lvq', metric="Accuracy",
 
 #Compare algorithms
 results <- resamples(list(LG=fit.glm, LDA=fit.lda, GLMNET=fit.glmnet, KNN=fit.knn,
-                          CART=fit.cart, NB=fit.nb, SVM=fit.svm, LVQ=fit.lvq))
+                          NB=fit.nb, SVM=fit.svm, LVQ=fit.lvq))
 summary(results)
 dotplot(results)
 
@@ -211,22 +228,10 @@ fit.rf <- train(Fundraised~., data=df.train.transformed, method="rf", metric="Ac
 ensembleResults <- resamples(list(BAG=fit.treebag, RF=fit.rf, GBM=fit.gbm))
 summary(ensembleResults)
 dotplot(ensembleResults)
-#LASSO -------------------------------------------------------------------------
 
-#define response variable
-y<-df.train$Fundraised
-
-#define matrix of predictor variables
-x<-data.matrix(subset(df.train, select = -c(Fundraised)))
-
-model.Fundraised.cv_lasso <- cv.glmnet(x=x, y=y,alpha = 1,family = binomial)
-best_lamda <- model.Fundraised.cv_lasso$lambda.min
-best_lamda
-best_model <- glmnet(x, y, alpha = 1, 
-                     family = binomial, lambda = best_lamda)
-coef(best_model)
 
 #Logit Regression---------------------------------------------------------------
+
 MostImportantVars.Model.Fundraised <- df.train %>%
   select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
            UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
@@ -238,9 +243,44 @@ model.Fundraised.logit <- glm(Fundraised ~MeanLeadTime+DistanceTraveled+SentEmai
                                ModifiedGoal+CompletedReg,
                                family=binomial(link='logit'),data=MostImportantVars.Model.Fundraised)
 
-summary(model.Fundraised.logit)
+#GLM Caret
+glmGrid = expand.grid(.parameter = seq(1,10,1))
+set.seed(7)
+fit.glm <- train(Fundraised~., data=MostImportantVars.Model.Fundraised, method='glm', metric="Accuracy", 
+                 trControl=trCtrl, tuneGrid = data.frame(glmGrid))
+summary(fit.glm)
 
+#attempt to use folding techniques
+fit3.glm <- train(Fundraised~., data=MostImportantVars.Model.Fundraised,
+               trControl = trCtrl, metric="Accuracy",
+               method="glm", family="binomial")
+
+summary(fit3.glm)
+
+model
+summary(model.Fundraised.logit)
 anova(model.Fundraised.logit, test="Chisq")
+
+#Logit train results
+fitted.logit.train.results <- predict(model.Fundraised.logit,newdata=subset(df.train,
+                          select=c(MeanLeadTime, DistanceTraveled, SentEmails, 
+                          MeanGoal, MeanTeamGoal,UpdatedPersonalPage, SelfDonated, 
+                          ProvidedParticipationReason,RepeatParticipant, ModifiedGoal, 
+                          CompletedReg)),type='response')
+
+predictions.train.logit <- data.frame(Fundraised = df.train$Fundraised,
+                                Pred.Fundraised = fitted.logit.train.results)
+
+predictions.train.logit$Fundraised<-ifelse(predictions.train.logit$Fundraised=="Yes",1,0)
+predictions.train.logit$Pred.Fundraised <- ifelse(predictions.train.logit$Pred.Fundraised > 0.3,1,0)
+
+#Convert to factors for Confusion Matrix
+predictions.train.logit$Fundraised <- as.factor(predictions.train.logit$Fundraised)
+predictions.train.logit$Pred.Fundraised <- as.factor(predictions.train.logit$Pred.Fundraised)
+
+#Creating confusion matrix
+train.logit.confusion <- confusionMatrix(data=predictions.train.logit$Pred.Fundraised, reference = predictions.train.logit$Fundraised)
+train.logit.confusion
 
 #Predictions Logit Regression---------------------------------------------------
 fitted.results <- predict(model.Fundraised.logit,newdata=subset(df.test,
@@ -255,7 +295,7 @@ predictions.logit <- data.frame(Fundraised = df.test$Fundraised,
                               Pred.Fundraised = fitted.results)
 
 predictions.logit$Fundraised<-ifelse(predictions.logit$Fundraised=="Yes",1,0)
-predictions.logit$Pred.Fundraised <- ifelse(predictions.logit$Pred.Fundraised > 0.3,1,0)
+predictions.logit$Pred.Fundraised <- ifelse(predictions.logit$Pred.Fundraised > 0.25,1,0)
 
 #Convert to factors for Confusion Matrix
 predictions.logit$Fundraised <- as.factor(predictions.logit$Fundraised)
@@ -268,46 +308,7 @@ logit.confusion
 #Display results 
 write.csv(predictions.logit, "./submission_logit.csv", row.names=FALSE)
 
-#MARS---------------------------------------------------------------------------
-marsFormula <- Fundraised ~MeanLeadTime+DistanceTraveled+SentEmails+
-  MeanGoal+MeanTeamGoal+UpdatedPersonalPage+SelfDonated+
-  ProvidedParticipationReason+RepeatParticipant+ 
-  ModifiedGoal+CompletedReg
 
-# set the preferred degree and number of values to prune
-tGrid <- expand.grid(degree=3, nprune=18)
-
-model.mars <- train(marsFormula, data=df.train, method="earth", tuneGrid=tGrid)
-summary(mars)
-mars
-
-#Predictions MARS Regression---------------------------------------------------
-fit.mars<- predict(model.mars,newdata=subset(df.test,select=c(MeanLeadTime, 
-                                            DistanceTraveled, SentEmails,MeanGoal, 
-                                            MeanTeamGoal,UpdatedPersonalPage, 
-                                            SelfDonated, ProvidedParticipationReason,
-                                            RepeatParticipant, ModifiedGoal,CompletedReg)))
-
-
-# Mars Predictions on hold out
-predictions.mars <- data.frame(Fundraised = df.test$Fundraised,
-                                Pred.Fundraised = fitted.results)
-str(predictions.mars)
-
-
-predictions.mars$Fundraised<-ifelse(predictions.mars$Fundraised=="Yes",1,0)
-predictions.mars$Pred.Fundraised <- ifelse(predictions.mars$Pred.Fundraised > 0.4,1,0)
-
-#Convert to factors for Confusion Matrix
-predictions.mars$Fundraised <- as.factor(predictions.mars$Fundraised)
-predictions.mars$Pred.Fundraised <- as.factor(predictions.mars$Pred.Fundraised)
-
-#Creating confusion matrix
-mars.confusion <- confusionMatrix(data=predictions.mars$Pred.Fundraised, reference = predictions.mars$Fundraised)
-mars.confusion
-
-#Display results 
-write.csv(predictions.logit, "./submission_mars.csv", row.names=FALSE)
 # Important Plots of Analysis --------------------------------------------------
 
 # Plot Importance of LVQ
@@ -408,3 +409,170 @@ dev.off()
 png(filename = "FundraisedGraphs/LassoWithCV.png")
 plot(model.Fundraised.cv_lasso)
 dev.off()
+
+#New decision tree based on Josh------------------------------------------------
+#LASSO
+LassoGrid <- expand.grid(
+  alpha = 1,
+  lambda = seq(0,1, length.out=100))
+
+fitcontrol <- trainControl(method = "cv",number = 5)
+
+Lasso <- train(Fundraised ~ .*.,
+               data=MostImportantVars.Model.Fundraised,
+               method = "glmnet",
+               family = "binomial",
+               tuneGrid=LassoGrid,
+               trControl = fitcontrol)
+interactionLASSO<-Lasso
+
+coefINTERACTIONlasso<-coef(Lasso$finalModel,Lasso$bestTune$lambda) 
+Lasso
+summary(Lasso)
+
+#MItchell's Lasso---------------------------------------------------------------
+
+# LASSO with GLMNET ------------------------------------------------------------
+model.Fundraised.glmnet <- glmnet(
+  x=dplyr::select(MostImportantVars.Fundraised, -Fundraised),
+  y=MostImportantVars.Fundraised$Fundraised,
+  family="binomial",
+  trace.it=1)
+
+summary(model.Fundraised.glmnet)
+coef(model.Fundraised.glmnet)
+model.Fundraised.glmnet
+
+model.Fundraised.CVglmnet <- cv.glmnet(
+  x=data.matrix(dplyr::select(MostImportantVars.Fundraised, -Fundraised)),
+  y=MostImportantVars.Fundraised$Fundraised,
+  alpha=1,
+  family="binomial",
+  trace.it=1)
+
+summary(model.Fundraised.CVglmnet)
+coef(model.Fundraised.CVglmnet)
+model.Fundraised.CVglmnet
+
+bestLambda.Fundraised <- model.Fundraised.CVglmnet$lambda.min
+bestLambda.Fundraised
+
+bestmodel.Fundraised.CVglmnet <- glmnet(
+  x=dplyr::select(MostImportantVars.Fundraised, -Fundraised),
+  y=MostImportantVars.Fundraised$Fundraised,
+  family="binomial",
+  lambda=bestLambda.Fundraised,
+  trace.it=1)
+
+summary(bestmodel.Fundraised.CVglmnet)
+coef(bestmodel.Fundraised.CVglmnet)
+bestmodel.Fundraised.CVglmnet
+
+#Decisions tree one
+DT1.Fundraised<-rpart(Fundraised~.,data=AllWalkData.ModelVars)
+
+summary(DT1.Fundraised)
+printcp(DT1.Fundraised)
+plotcp(DT1.Fundraised)
+
+DT1.Fundraised$cptable[which.min(DT1$cptable[,"xerror"]),"CP"]
+
+#CP = 0.01
+
+#Log Regression Summary based on notes
+CrossTable(predictions.logit$Pred.Fundraised,predictions.logit$Fundraised, chisq=T)
+
+#Original glm model
+#fit.glm <- train(Fundraised~., data=df.train, method='glm', metric="Accuracy", 
+#trControl=trCtrl)
+
+fit2.glm <- glm(data=df.test,Fundraised~., family='binomial')
+pred <- prediction(fit2.glm$fitted.values, fit2.glm$y)    #ROC curve for training data
+perf <- performance(pred,"tpr","fpr") 
+
+plot(perf,colorize=TRUE, print.cutoffs.at = c(0.25,0.5,0.75)); 
+abline(0, 1, col="red")  
+
+
+# can also plot accuracy by average cutoff level 
+perf <- performance(pred, "acc")
+plot(perf, avg= "vertical",  
+     spread.estimate="boxplot", 
+     show.spread.at= seq(0.1, 0.9, by=0.1))
+
+# can also look at cutoff based on different cost structure
+perf <- performance(pred, "cost", cost.fp=1, cost.fn=5)
+plot(perf); 
+
+
+
+# one nice one to look at...
+# difference in distribution of predicted probabilities 
+# for observations that were y=0 and y=1
+
+plot(0,0,type="n", xlim= c(0,1), ylim=c(0,7),     
+     xlab="Prediction", ylab="Density",  
+     main="How well do the predictions separate the classes?")
+
+for (runi in 1:length(pred@predictions)) {
+  lines(density(pred@predictions[[runi]][pred@labels[[runi]]==1]), col= "blue")
+  lines(density(pred@predictions[[runi]][pred@labels[[runi]]==0]), col="green")
+}
+#K-S chart  (Kolmogorov-Smirnov chart) 
+# measures the degree of separation 
+# between the positive (y=1) and negative (y=0) distributions
+
+predVals$group<-cut(predVals$predProb,seq(1,0,-.1),include.lowest=T)
+xtab<-table(predVals$group,predVals$trueVal)
+
+xtab
+
+#make empty dataframe
+KS<-data.frame(Group=numeric(10),
+               CumPct0=numeric(10),
+               CumPct1=numeric(10),
+               Dif=numeric(10))
+
+#fill data frame with information: Group ID, 
+#Cumulative % of 0's, of 1's and Difference
+for (i in 1:10) {
+  KS$Group[i]<-i
+  KS$CumPct0[i] <- sum(xtab[1:i,1]) / sum(xtab[,1])
+  KS$CumPct1[i] <- sum(xtab[1:i,2]) / sum(xtab[,2])
+  KS$Dif[i]<-abs(KS$CumPct0[i]-KS$CumPct1[i])
+}
+
+KS  
+
+KS[KS$Dif==max(KS$Dif),]
+
+maxGroup<-KS[KS$Dif==max(KS$Dif),][1,1]
+
+#and the K-S chart
+ggplot(data=KS)+
+  geom_line(aes(Group,CumPct0),color="blue")+
+  geom_line(aes(Group,CumPct1),color="red")+
+  geom_segment(x=maxGroup,xend=maxGroup,
+               y=KS$CumPct0[maxGroup],yend=KS$CumPct1[maxGroup])+
+  labs(title = "K-S Chart", x= "Deciles", y = "Cumulative Percent")
+
+#Predictions--------------------------------------------------------------------
+
+# Decision Tree
+preds.dt <- predict(DT1.Fundraised, MostImportantVars.Fundraised.test,
+                    type="class")
+
+confusionMatrix(preds.dt, MostImportantVars.Fundraised.test$Fundraised)
+DT1.Fundraised$cptable[which.min(DT1$cptable[,"xerror"]),"CP"] #prints out the min CP value
+
+# Logistic (GLM)
+preds.glm <- predict(model.Fundraised.glm, df.Fundraised.test.glm,
+                     type="response")
+preds.glm <- as.factor(c(ifelse(preds.glm > 0.5, 1, 0)))
+levels(preds.glm) <- c("No", "Yes")
+confusionMatrix(preds.glm, df.Fundraised.test.glm$Fundraised)
+
+# Lasso with Interactions
+preds.lassoInteract <- predict(bestmodel.Fundraised.CVglmnet, 
+                               MostImportantVars.Fundraised.test)
+confusionMatrix(preds.lassoInteract, Fundraised.test.$Fundraised)

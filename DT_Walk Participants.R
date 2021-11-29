@@ -106,6 +106,9 @@ AllWalkData$`Team Division`<-fct_collapse(AllWalkData$`Team Division`,
                                           FamilyFriends = "Family/Friends",
                                           None = c("","Other"))
 
+# Make Gender NA values a level of "UNKNOWN"
+AllWalkData$`Participant Gender` <- fct_explicit_na(AllWalkData$`Participant Gender`, "UNKNOWN")
+
 ###########################
 ########Event Grouping#####
 ###########################
@@ -176,6 +179,7 @@ dfwalk_ind <- AllWalkData %>%
             FinanciallyCont = names(which(table(FinanciallyContributed) == max(table(FinanciallyContributed)))[1]), #either donnated or raised money
             SelfDonated=names(which(table(SelfDonated) == max(table(SelfDonated)))[1]),
             Fundraised = names(which(table(Fundraised) == max(table(Fundraised)))[1]),
+            Gender=names(which(table(`Participant Gender`) == max(table(`Participant Gender`)))[1]),
             ModifiedGoal=names(which(table(ModifiedGoal) == max(table(ModifiedGoal)))[1]),
             Onteam = names(which(table(OnTeam) == max(table(OnTeam)))[1]),
             UpdatedPersonalPage = names(which(table(UpdatedPersonalPage) == max(table(UpdatedPersonalPage)))[1]),
@@ -188,6 +192,7 @@ dfwalk_ind <- AllWalkData %>%
 dfwalk_ind %>% 
   group_by(RepeatParticipant) %>% 
   summarise(n=n())
+
 
 #dealing with the character not being factors
 write.csv(dfwalk_ind,file = "InvidualParticipants.csv")
