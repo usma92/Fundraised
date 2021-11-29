@@ -107,7 +107,12 @@ MostImportantVars.Fundraised <- df.train %>%
 MostImportantVars.Fundraised.test <- df.test %>%
   select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
            UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
-           RepeatParticipant, ModifiedGoal, CompletedReg))
+           RepeatParticipant, ModifiedGoal, CompletedReg, Fundraised))
+
+MostImportantVars.Fundraised.train <- df.train %>%
+  select(c(MeanLeadTime, DistanceTraveled, SentEmails, MeanGoal, MeanTeamGoal,
+           UpdatedPersonalPage, SelfDonated, ProvidedParticipationReason,
+           RepeatParticipant, ModifiedGoal, CompletedReg, Fundraised))
 
 MostImportantVars.Fundraised.Integer <- data.frame(lapply(MostImportantVars.Fundraised, as.integer))
 
@@ -257,7 +262,7 @@ fit3.glm <- train(Fundraised~., data=MostImportantVars.Model.Fundraised,
 
 summary(fit3.glm)
 
-model
+#model
 summary(model.Fundraised.logit)
 anova(model.Fundraised.logit, test="Chisq")
 
@@ -433,9 +438,13 @@ summary(Lasso)
 #MItchell's Lasso---------------------------------------------------------------
 
 # LASSO with GLMNET ------------------------------------------------------------
+df.Fundraised.train.glmnet <- MostImportantVars.Fundraised.train
+df.Fundraised.test.glmnet <- MostImportantVars.Fundraised.test
+
 model.Fundraised.glmnet <- glmnet(
-  x=dplyr::select(MostImportantVars.Fundraised, -Fundraised),
-  y=MostImportantVars.Fundraised$Fundraised,
+  x=dplyr::select(df.Fundraised.train.glmnet, -Fundraised),
+  y=df.Fundraised.train.glmnet$Fundraised,
+  alpha=1,
   family="binomial",
   trace.it=1)
 
@@ -443,9 +452,10 @@ summary(model.Fundraised.glmnet)
 coef(model.Fundraised.glmnet)
 model.Fundraised.glmnet
 
+#CV model run
 model.Fundraised.CVglmnet <- cv.glmnet(
-  x=data.matrix(dplyr::select(MostImportantVars.Fundraised, -Fundraised)),
-  y=MostImportantVars.Fundraised$Fundraised,
+  x=data.matrix(dplyr::select(df.Fundraised.train.glmnet, -Fundraised)),
+  y=df.Fundraised.train.glmnet$Fundraised,
   alpha=1,
   family="binomial",
   trace.it=1)
@@ -457,16 +467,54 @@ model.Fundraised.CVglmnet
 bestLambda.Fundraised <- model.Fundraised.CVglmnet$lambda.min
 bestLambda.Fundraised
 
-bestmodel.Fundraised.CVglmnet <- glmnet(
-  x=dplyr::select(MostImportantVars.Fundraised, -Fundraised),
-  y=MostImportantVars.Fundraised$Fundraised,
+#model run with best lambda from cv
+model.Fundraised.bestCVglmnet <- glmnet(
+  x=dplyr::select(df.Fundraised.train.glmnet, -Fundraised),
+  y=df.Fundraised.train.glmnet$Fundraised,
   family="binomial",
   lambda=bestLambda.Fundraised,
   trace.it=1)
 
-summary(bestmodel.Fundraised.CVglmnet)
-coef(bestmodel.Fundraised.CVglmnet)
-bestmodel.Fundraised.CVglmnet
+summary(model.Fundraised.bestCVglmnet)
+coef(model.Fundraised.bestCVglmnet)
+model.Fundraised.bestCVglmnet
+
+# CV GLMnet Testing with best lambda model
+# Testing across multiple thresholds, probably don't neet to use
+# but just in case you want to speed up testing multiple thresholds
+bestThreshAccuracy <- 0
+bestAccuracy <- 0
+bestThreshKappa <- 0
+bestKappa <- 0  
+for (predThresh in seq(0.3,0.7,by=0.01)) {
+  print(predThresh)
+  preds.Fundraised.CVglmnet <- predict(model.Fundraised.bestCVglmnet, 
+                                        newx=data.matrix(dplyr::select(df.Fundraised.test.glmnet, -Fundraised)),
+                                        s=bestLambda.Fundraised,
+                                        type="response")
+  preds.Fundraised.CVglmnet <- as.factor(c(ifelse(preds.Fundraised.CVglmnet > predThresh, 1, 0)))
+  levels(preds.Fundraised.CVglmnet) <- c("No", "Yes")
+  cm <- confusionMatrix(preds.Fundraised.CVglmnet, df.Fundraised.test.glmnet$Fundraised)
+  if (cm$overall[1] > bestAccuracy) {
+    bestThreshAccuracy <- predThresh
+    bestAccuracy <- cm$overall[1]
+  }
+  
+  if (cm$overall[2] > bestKappa) {
+    bestThreshKappa <- predThresh
+    bestKappa <- cm$overall[2]
+  }
+}
+# Best Accuracy
+# Best Kappa
+# Testing across one threshold
+preds.Fundraised.CVglmnet <- predict(model.Fundraised.bestCVglmnet, 
+                                      newx=data.matrix(dplyr::select(df.Fundraised.test.glmnet, -Fundraised)),
+                                      s=bestLambda.Fundraised,
+                                      type="response")
+preds.Fundraised.CVglmnet <- as.factor(c(ifelse(preds.Fundraised.CVglmnet > 0.7, 1, 0)))
+levels(preds.Fundraised.CVglmnet) <- c("No", "Yes")
+confusionMatrix(preds.Fundraised.CVglmnet, df.Fundraised.test.glmnet$Fundraised)
 
 #Decisions tree one
 DT1.Fundraised<-rpart(Fundraised~.,data=AllWalkData.ModelVars)
